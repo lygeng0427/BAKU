@@ -11,6 +11,12 @@ from dm_env import StepType, specs, TimeStep
 
 import os
 import cv2
+# import sys
+# libero_site_packages = "/home/lgeng/miniforge3/envs/libero/lib/python3.8/site-packages"
+# libero_repo = "/home/lgeng/LIBERO"
+# os.environ["PYTHONPATH"] = libero_repo + ":" + libero_site_packages + ":" + os.environ.get("PYTHONPATH", "")
+# sys.path = os.environ["PYTHONPATH"].split(":")
+
 from libero.libero import benchmark, get_libero_path
 from libero.libero.envs import OffScreenRenderEnv
 

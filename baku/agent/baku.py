@@ -715,7 +715,7 @@ class BCAgent:
                 data["task_emb"].float()[:, None].repeat(1, self.history_len, 1)
             )
             lang_features = self.language_projector(lang_features)
-            lang_features = einops.rearrange(lang_features, "b t d -> (b t) d")
+            lang_features = einops.rearrange(lang_features, "b t d -> (b t) d") # (BS, 512)
         else:
             lang_features = None
 
@@ -728,7 +728,7 @@ class BCAgent:
                 # rearrange
                 pixel = einops.rearrange(pixel, "b t c h w -> (b t) c h w")
                 # augment
-                pixel = self.customAug(pixel / 255.0) if self.norm else pixel
+                pixel = self.customAug(pixel / 255.0) if self.norm else pixel # (BS, 3, 128, 128)
                 # encode
                 lang = lang_features if self.film else None
                 if self.train_encoder:
@@ -744,16 +744,16 @@ class BCAgent:
                             if self.separate_encoders
                             else self.encoder(pixel, lang=lang)
                         )
-                pixel = einops.rearrange(pixel, "(b t) d -> b t d", t=shape[1])
+                pixel = einops.rearrange(pixel, "(b t) d -> b t d", t=shape[1]) # (BS, 1, 512)
                 features.append(pixel)
             if self.use_proprio:
-                proprio = data[self.proprio_key].float()
-                proprio = self.proprio_projector(proprio)
+                proprio = data[self.proprio_key].float() # (BS, 1, 9)
+                proprio = self.proprio_projector(proprio) # (BS, 1, 512)
                 features.append(proprio)
             # concatenate
             features = torch.cat(features, dim=-1).view(
                 action.shape[0], -1, self.repr_dim
-            )  # (B, T * num_feat_per_step, D)
+            )  # (BS, T * num_feat_per_step, D)
         else:
             features = data[self.feature_key].float()
             shape = features.shape
@@ -768,7 +768,7 @@ class BCAgent:
         if self.use_language:
             lang_features = einops.rearrange(
                 lang_features, "(b t) d -> b t d", t=shape[1]
-            )
+            ) # (BS, 1, 512)
             prompt_features.append(lang_features[:, -1:])
         if self.prompt not in [None, "text", "one_hot"]:
             if self.use_language:
@@ -832,7 +832,7 @@ class BCAgent:
                 action.shape[0], -1, self.repr_dim
             )
             # prepend prompt features
-            features = torch.cat([prompt_features, features], dim=1)
+            features = torch.cat([prompt_features, features], dim=1) # (BS, 4, 512)
 
         # rearrange action
         if self.temporal_agg:

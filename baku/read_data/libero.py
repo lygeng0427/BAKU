@@ -182,6 +182,7 @@ class BCDataset(IterableDataset):
                     for i in range(len(sampled_pixel_egocentric))
                 ]
             )
+            # joint_states: (n, 7), gripper_states: (n, 2)
             sampled_proprioceptive_state = np.concatenate(
                 [
                     observations["joint_states"][
@@ -224,16 +225,16 @@ class BCDataset(IterableDataset):
             # prompt
             if self._prompt == "text":
                 return {
-                    "pixels": sampled_pixel,
-                    "pixels_egocentric": sampled_pixel_egocentric,
+                    "pixels": sampled_pixel, # (1, 3, 128, 128)
+                    "pixels_egocentric": sampled_pixel_egocentric, # (1, 3, 128, 128)
                     "proprioceptive": self.preprocess["proprioceptive"](
                         sampled_proprioceptive_state
-                    ),
-                    "actions": self.preprocess["actions"](sampled_action),
-                    "intermediate_frames": intermediate_frames
+                    ), # (1, 9)
+                    "actions": self.preprocess["actions"](sampled_action), # (1, 10, 7)
+                    "intermediate_frames": intermediate_frames # (1, 3, 128, 128)
                     if self.inverse
                     else None,
-                    "task_emb": task_emb,
+                    "task_emb": task_emb, # (384,)
                 }
             elif self._prompt == "goal":
                 prompt_episode = self._sample_episode(env_idx)

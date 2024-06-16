@@ -1,6 +1,6 @@
 ## Installation Instructions
 
-- Clone the repository and create a conda environment using the provided `conda_env.yml` file.
+- Clone the repository and create a conda environment using the provided `conda_env.yaml` file.
 ```
 conda env create -f conda_env.yml
 ```
