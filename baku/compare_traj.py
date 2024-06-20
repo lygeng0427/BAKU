@@ -324,20 +324,21 @@ class WorkspaceIL:
         )
 
         optimizer = torch.optim.Adam(self.CLIPTraj.parameters())
-        for _ in range(epochs):
-            # self.CLIPTraj.train()
-            # train_tqdm = tqdm(train_loader, total=len(train_loader), desc="Training")
-            # train_loss_meter = utils.AvgMeter()
+        for i in range(epochs):
+            print(f"Epoch {i + 1} / {epochs}")
+            self.CLIPTraj.train()
+            train_tqdm = tqdm(train_loader, total=len(train_loader), desc="Training")
+            train_loss_meter = utils.AvgMeter()
 
-            # for batch in train_tqdm:
-            #     optimizer.zero_grad()
-            #     loss = self.CLIPTraj(batch)
-            #     loss.backward()
-            #     optimizer.step()
+            for batch in train_tqdm:
+                optimizer.zero_grad()
+                loss = self.CLIPTraj(batch)
+                loss.backward()
+                optimizer.step()
 
-            #     count = batch[0].shape[0]
-            #     train_loss_meter.update(loss.item(), count)
-            #     train_tqdm.set_postfix(loss=train_loss_meter.avg)
+                count = batch[0].shape[0]
+                train_loss_meter.update(loss.item(), count)
+                train_tqdm.set_postfix(loss=train_loss_meter.avg)
 
             self.CLIPTraj.eval()
             val_loss_meter = utils.AvgMeter()
@@ -346,7 +347,6 @@ class WorkspaceIL:
             with torch.no_grad():
                 for batch in val_tqdm:
                     val_loss = self.CLIPTraj(batch)
-                    print(val_loss.item())
                     count = batch[0].shape[0]
                     val_loss_meter.update(val_loss.item(), count)
                     val_tqdm.set_postfix(loss=val_loss_meter.avg)
