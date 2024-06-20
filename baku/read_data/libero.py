@@ -108,7 +108,7 @@ class BCDataset(IterableDataset):
                 # if obs_type == 'features':
                 self._max_state_dim = max(
                     self._max_state_dim, data["states"][i].shape[-1]
-                )
+                ) if "states" in data.keys() else 0
                 self._num_samples += (
                     len(observations[i])
                     if self._obs_type == "features"
