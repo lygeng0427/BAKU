@@ -22,8 +22,9 @@ from logger import Logger
 from replay_buffer import make_expert_replay_loader
 from video import VideoRecorder
 from rewarder import optimal_transport_plan, cosine_distance, euclidean_distance
-from contr_dataset import ContrDataset
+from contr_dataset import ContrDataset, InfoNCEDataset
 from agent.networks.gpt import GPT, GPTConfig
+from info_nce import InfoNCE, info_nce
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 torch.backends.cudnn.benchmark = True
@@ -100,8 +101,12 @@ class CLIPTraj(nn.Module):
 
     def forward(self, batch):
         # Getting Image and Text Features
-        first_features = self.actor_1(batch[0])[:, -1]
-        second_features = self.actor_2(batch[1])[:, -1]
+        first_features = self.actor_1(batch[0])
+        second_features = self.actor_2(batch[1])
+
+        # Take the last token of the sequence
+        first_features = first_features[:, -1]
+        second_features = second_features[:, -1]
 
         # Getting Image and Text Embeddings (with same dimension)
         image_embeddings = self.projection_1(first_features)
@@ -119,6 +124,68 @@ class CLIPTraj(nn.Module):
         loss =  (images_loss + texts_loss) / 2.0 # shape: (batch_size)
         return loss.mean()
 
+class infoNCETraj(nn.Module):
+    def __init__(
+        self,
+        embedding_dim=512,
+    ):
+        super().__init__()
+        self.encoder = GPT(
+            GPTConfig(
+                block_size=256,
+                input_dim=embedding_dim,
+                output_dim=embedding_dim,
+                n_layer=8,
+                n_head=4,
+                n_embd=embedding_dim,
+                dropout=0.1,
+            )
+        )
+        # self.second_encoder = GPT(
+        #     GPTConfig(
+        #         block_size=256,
+        #         input_dim=embedding_dim,
+        #         output_dim=embedding_dim,
+        #         n_layer=8,
+        #         n_head=4,
+        #         n_embd=embedding_dim,
+        #         dropout=0.1,
+        #     )
+        # )
+        self.projection_1 = ProjectionHead(512)
+        self.projection_2 = ProjectionHead(512)
+        self.loss = InfoNCE(negative_mode='paired')
+
+    def forward(self, batch):
+        """
+        Input:
+        traj_embed: (B, P/N, L, embed_dim)
+        where B stands for the batch size, L stands for the max_length of the traj, embed_dim stands for the dimension of the model
+        """
+        # Getting Image and Text Features
+        B, P, L, embed_dim = batch['traj_1'].shape
+        B, N, L, embed_dim = batch['traj_2'].shape
+
+        traj_1 = batch['traj_1'].view(B * P, L, embed_dim)
+        traj_2 = batch['traj_2'].view(B * N, L, embed_dim)
+
+        first_features = self.encoder(traj_1)[:, -1, :]
+        second_features = self.encoder(traj_2)[:, -1, :]
+
+        first_features = first_features.view(B, P, -1)
+        second_features = second_features.view(B, N, -1)
+
+        first_features = self.projection_1(first_features)
+        second_features = self.projection_2(second_features)
+
+        # Calculating the Loss
+        query = first_features[:, 0, :]
+        positive_key = first_features[:, 1, :]
+        negative_keys = second_features
+
+        loss = self.loss(query, positive_key, negative_keys)
+        
+        return loss
 
 def cross_entropy(preds, targets, reduction='none'):
     log_softmax = nn.LogSoftmax(dim=-1)
@@ -176,6 +243,7 @@ class WorkspaceIL:
             self.work_dir if self.cfg.save_video else None
         )
         self.CLIPTraj = CLIPTraj().to(self.device)
+        self.infoNCETraj = infoNCETraj().to(self.device)
 
     @property
     def global_step(self):
@@ -314,16 +382,19 @@ class WorkspaceIL:
         )
         train_loader = torch.utils.data.DataLoader(
             contr_train_dataset,
-            batch_size=4,
+            batch_size=2,
             num_workers=0,
         )
         val_loader = torch.utils.data.DataLoader(
             contr_val_dataset,
-            batch_size=4,
+            batch_size=2,
             num_workers=0,
         )
 
         optimizer = torch.optim.Adam(self.CLIPTraj.parameters())
+        # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, mode="min", patience=2, factor=0.5
+        # )
         for i in range(epochs):
             print(f"Epoch {i + 1} / {epochs}")
             self.CLIPTraj.train()
@@ -350,7 +421,66 @@ class WorkspaceIL:
                     count = batch[0].shape[0]
                     val_loss_meter.update(val_loss.item(), count)
                     val_tqdm.set_postfix(loss=val_loss_meter.avg)
-        
+
+    def infoNCE(self, epochs=10):
+        encoder = self.agent.encoder
+        language_projector = self.agent.language_projector
+
+        contr_train_dataset = InfoNCEDataset(
+            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'train', self.device
+        )
+        contr_val_dataset = InfoNCEDataset(
+            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+        )
+        train_loader = torch.utils.data.DataLoader(
+            contr_train_dataset,
+            batch_size=2,
+            num_workers=0,
+        )
+        val_loader = torch.utils.data.DataLoader(
+            contr_val_dataset,
+            batch_size=2,
+            num_workers=0,
+        )
+
+        optimizer = torch.optim.Adam(self.CLIPTraj.parameters())
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=2, factor=0.5
+        )
+        for i in range(epochs):
+            print(f"Epoch {i + 1} / {epochs}")
+            train_tqdm = tqdm(train_loader, total=len(train_loader), desc="Training")
+            train_loss_meter = utils.AvgMeter()
+
+            # for batch in train_tqdm:
+            #     optimizer.zero_grad()
+            #     loss = self.infoNCETraj(batch)
+            #     loss.backward()
+            #     optimizer.step()
+
+            #     lr_scheduler.step(loss)
+
+            #     count = batch["traj_1"].shape[0]
+            #     train_loss_meter.update(loss.item(), count)
+            #     train_tqdm.set_postfix(loss=train_loss_meter.avg)
+
+            self.infoNCETraj.eval()
+            val_loss_meter = utils.AvgMeter()
+            val_tqdm = tqdm(val_loader, total=len(val_loader), desc="Validation")
+            
+            df = pd.DataFrame(columns=["Distance", "GT Distance"])
+            with torch.no_grad():
+                for batch in val_tqdm:
+                    feature_1 = self.infoNCETraj.encoder(batch['traj_1'])[:, -1]
+                    feature_2 = self.infoNCETraj.encoder(batch['traj_2'])[:, -1]
+
+                    dist = 1. - torch.nn.functional.cosine_similarity(feature_1, feature_2, dim=1).cpu()
+                    gt_dist = batch['label']
+                    print(dist, gt_dist)
+                    for j in range(len(dist)):
+                        df = df.append({"Distance": dist[j].item(), "GT Distance": gt_dist[j].item()}, ignore_index=True) 
+                df.to_csv(self.work_dir / 'features_distances.csv', index=False)
+
     def eval(self):
         self.agent.train(False)
         episode_rewards = []
@@ -465,7 +595,8 @@ def main(cfg):
 
     # workspace.eval()
     # workspace.compare_all()
-    workspace.contr()
+    # workspace.contr()
+    workspace.infoNCE()
 
 
 if __name__ == "__main__":
