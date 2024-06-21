@@ -452,17 +452,17 @@ class WorkspaceIL:
             train_tqdm = tqdm(train_loader, total=len(train_loader), desc="Training")
             train_loss_meter = utils.AvgMeter()
 
-            # for batch in train_tqdm:
-            #     optimizer.zero_grad()
-            #     loss = self.infoNCETraj(batch)
-            #     loss.backward()
-            #     optimizer.step()
+            for batch in train_tqdm:
+                optimizer.zero_grad()
+                loss = self.infoNCETraj(batch)
+                loss.backward()
+                optimizer.step()
 
-            #     lr_scheduler.step(loss)
+                lr_scheduler.step(loss)
 
-            #     count = batch["traj_1"].shape[0]
-            #     train_loss_meter.update(loss.item(), count)
-            #     train_tqdm.set_postfix(loss=train_loss_meter.avg)
+                count = batch["traj_1"].shape[0]
+                train_loss_meter.update(loss.item(), count)
+                train_tqdm.set_postfix(loss=train_loss_meter.avg)
 
             self.infoNCETraj.eval()
             val_loss_meter = utils.AvgMeter()
