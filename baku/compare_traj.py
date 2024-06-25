@@ -16,6 +16,7 @@ import numpy as np
 import random
 import pandas as pd
 from tqdm import tqdm
+import wandb
 
 import utils
 from logger import Logger
@@ -23,6 +24,7 @@ from replay_buffer import make_expert_replay_loader
 from video import VideoRecorder
 from rewarder import optimal_transport_plan, cosine_distance, euclidean_distance
 from contr_dataset import ContrDataset, InfoNCEDataset
+from supervised_dataset import SupervisedDataset
 from agent.networks.gpt import GPT, GPTConfig
 from info_nce import InfoNCE, info_nce
 
@@ -47,7 +49,7 @@ class ProjectionHead(nn.Module):
         self,
         embedding_dim,
         projection_dim=256,
-        dropout=0.1
+        dropout=0,
     ):
         super().__init__()
         self.projection = nn.Linear(embedding_dim, projection_dim)
@@ -124,6 +126,14 @@ class CLIPTraj(nn.Module):
         loss =  (images_loss + texts_loss) / 2.0 # shape: (batch_size)
         return loss.mean()
 
+def cross_entropy(preds, targets, reduction='none'):
+    log_softmax = nn.LogSoftmax(dim=-1)
+    loss = (-targets * log_softmax(preds)).sum(1)
+    if reduction == "none":
+        return loss
+    elif reduction == "mean":
+        return loss.mean()
+    
 class infoNCETraj(nn.Module):
     def __init__(
         self,
@@ -141,19 +151,6 @@ class infoNCETraj(nn.Module):
                 dropout=0.1,
             )
         )
-        # self.second_encoder = GPT(
-        #     GPTConfig(
-        #         block_size=256,
-        #         input_dim=embedding_dim,
-        #         output_dim=embedding_dim,
-        #         n_layer=8,
-        #         n_head=4,
-        #         n_embd=embedding_dim,
-        #         dropout=0.1,
-        #     )
-        # )
-        self.projection_1 = ProjectionHead(512)
-        self.projection_2 = ProjectionHead(512)
         self.loss = InfoNCE(negative_mode='paired')
 
     def forward(self, batch):
@@ -175,8 +172,8 @@ class infoNCETraj(nn.Module):
         first_features = first_features.view(B, P, -1)
         second_features = second_features.view(B, N, -1)
 
-        first_features = self.projection_1(first_features)
-        second_features = self.projection_2(second_features)
+        # first_features = self.projection_1(first_features)
+        # second_features = self.projection_2(second_features)
 
         # Calculating the Loss
         query = first_features[:, 0, :]
@@ -187,13 +184,41 @@ class infoNCETraj(nn.Module):
         
         return loss
 
-def cross_entropy(preds, targets, reduction='none'):
-    log_softmax = nn.LogSoftmax(dim=-1)
-    loss = (-targets * log_softmax(preds)).sum(1)
-    if reduction == "none":
-        return loss
-    elif reduction == "mean":
-        return loss.mean()
+class supervisedTraj(nn.Module):
+    def __init__(
+        self,
+        embedding_dim=512,
+    ):
+        super().__init__()
+        self.encoder = GPT(
+            GPTConfig(
+                block_size=256,
+                input_dim=embedding_dim,
+                output_dim=embedding_dim,
+                n_layer=8,
+                n_head=4,
+                n_embd=embedding_dim,
+                dropout=0.1,
+            )
+        )
+        self.projection = nn.Linear(embedding_dim, 1)
+        self.criterion = nn.BCEWithLogitsLoss()
+
+    def forward(self, batch):
+        traj = batch[0]
+        labels = batch[1]
+        B, L, embed_dim = traj.shape
+
+        features = self.encoder(traj)
+        logits = self.projection(features).squeeze(-1)
+        labels = labels.to(logits.device).float().unsqueeze(-1)
+        labels = labels.repeat(1, L)
+        loss = 0
+        for i in range(L):
+            label = labels[:, i]
+            logit = logits[:, i]
+            loss += self.criterion(logit, label)
+        return loss / L
 
 
 class WorkspaceIL:
@@ -244,6 +269,7 @@ class WorkspaceIL:
         )
         self.CLIPTraj = CLIPTraj().to(self.device)
         self.infoNCETraj = infoNCETraj().to(self.device)
+        self.supervisedTraj = supervisedTraj().to(self.device)
 
     @property
     def global_step(self):
@@ -476,10 +502,76 @@ class WorkspaceIL:
 
                     dist = 1. - torch.nn.functional.cosine_similarity(feature_1, feature_2, dim=1).cpu()
                     gt_dist = batch['label']
-                    print(dist, gt_dist)
+                    # print(dist, gt_dist)
                     for j in range(len(dist)):
                         df = df.append({"Distance": dist[j].item(), "GT Distance": gt_dist[j].item()}, ignore_index=True) 
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
+
+    def supervised_train(self):
+        wandb.init(project="contrCoformer", entity="lg3490", name='supervised_train_1')
+        config = wandb.config
+        config.lr = 0.01
+        config.epochs = 50
+        config.bs = 2
+        config.step_size = 10
+
+        # Rest of the code goes here
+        encoder = self.agent.encoder
+        language_projector = self.agent.language_projector
+
+        contr_train_dataset = SupervisedDataset(
+            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'train', self.device
+        )
+        contr_val_dataset = SupervisedDataset(
+            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+        )
+        train_loader = torch.utils.data.DataLoader(
+            contr_train_dataset,
+            batch_size=config.bs,
+            num_workers=0,
+        )
+        val_loader = torch.utils.data.DataLoader(
+            contr_val_dataset,
+            batch_size=config.bs,
+            num_workers=0,
+        )
+
+        optimizer = torch.optim.Adam(self.supervisedTraj.parameters(), lr=config.lr)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.step_size, gamma=0.1)
+
+        for i in range(config.epochs):
+            print(f"Epoch {i + 1} / {config.epochs}")
+            self.supervisedTraj.train()
+            train_tqdm = tqdm(train_loader, total=len(train_loader), desc="Training")
+            train_loss_meter = utils.AvgMeter()
+
+            for batch in train_tqdm:
+                optimizer.zero_grad()
+                loss = self.supervisedTraj(batch)
+                loss.backward()
+                optimizer.step()
+
+                count = batch[0].shape[0]
+                train_loss_meter.update(loss.item(), count)
+                train_tqdm.set_postfix(loss=train_loss_meter.avg)
+
+            wandb.log({"train_loss": train_loss_meter.avg}, step=i)
+            lr_scheduler.step()
+
+            self.supervisedTraj.eval()
+            val_loss_meter = utils.AvgMeter()
+            val_tqdm = tqdm(val_loader, total=len(val_loader), desc="Validation")
+
+            with torch.no_grad():
+                for batch in val_tqdm:
+                    val_loss = self.supervisedTraj(batch)
+                    count = batch[0].shape[0]
+                    val_loss_meter.update(val_loss.item(), count)
+                    val_tqdm.set_postfix(loss=val_loss_meter.avg)
+
+                wandb.log({"val_loss": val_loss_meter.avg}, step=i)
+
+        wandb.finish()
 
     def eval(self):
         self.agent.train(False)
@@ -596,7 +688,8 @@ def main(cfg):
     # workspace.eval()
     # workspace.compare_all()
     # workspace.contr()
-    workspace.infoNCE()
+    # workspace.infoNCE()
+    workspace.supervised_train()
 
 
 if __name__ == "__main__":
