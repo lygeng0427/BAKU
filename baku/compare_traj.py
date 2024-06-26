@@ -220,6 +220,15 @@ class supervisedTraj(nn.Module):
             loss += self.criterion(logit, label)
         return loss / L
 
+    def show_prob(self, batch):
+        traj = batch[0]
+        labels = batch[1]
+
+        features = self.encoder(traj)
+        logits = self.projection(features).squeeze(-1)
+        probs = torch.sigmoid(logits)
+        return probs, labels
+
 
 class WorkspaceIL:
     def __init__(self, cfg):
@@ -508,12 +517,12 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project="contrCoformer", entity="lg3490", name='supervised_train_1')
+        wandb.init(project="contrCoformer", entity="lg3490", name='supervised_train_save')
         config = wandb.config
         config.lr = 0.01
-        config.epochs = 50
+        config.epochs = 30
         config.bs = 2
-        config.step_size = 10
+        config.step_size = 6
 
         # Rest of the code goes here
         encoder = self.agent.encoder
@@ -538,6 +547,7 @@ class WorkspaceIL:
 
         optimizer = torch.optim.Adam(self.supervisedTraj.parameters(), lr=config.lr)
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.step_size, gamma=0.1)
+        min_val_loss = float('inf')
 
         for i in range(config.epochs):
             print(f"Epoch {i + 1} / {config.epochs}")
@@ -571,7 +581,38 @@ class WorkspaceIL:
 
                 wandb.log({"val_loss": val_loss_meter.avg}, step=i)
 
+            if val_loss_meter.avg < min_val_loss:
+                min_val_loss = val_loss_meter.avg
+                torch.save(self.supervisedTraj.state_dict(), self.work_dir / 'supervised_model.pth')
+
         wandb.finish()
+    
+    def supervised_eval(self, model_path):
+        encoder = self.agent.encoder
+        language_projector = self.agent.language_projector
+
+        contr_val_dataset = SupervisedDataset(
+            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+        )
+        val_loader = torch.utils.data.DataLoader(
+            contr_val_dataset,
+            batch_size=2,
+            num_workers=0,
+        )
+
+        self.supervisedTraj.load_state_dict(torch.load(model_path))
+        self.supervisedTraj.eval()
+        # val_tqdm = tqdm(val_loader, total=len(val_loader), desc="Validation")
+        df = pd.DataFrame(columns=["Probs", "Labels"])
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                probs, labels = self.supervisedTraj.show_prob(batch)
+                for i in range(len(probs)):
+                    # print(f"Prob: {probs_formatted}")
+                    # print(f"GT: {labels[i].item()}")
+                    df = df.append({"Probs": probs[i].tolist(), "Labels": labels[i].item()}, ignore_index=True)
+        df.to_csv(self.work_dir / 'probs.csv', index=False)
 
     def eval(self):
         self.agent.train(False)
@@ -689,7 +730,9 @@ def main(cfg):
     # workspace.compare_all()
     # workspace.contr()
     # workspace.infoNCE()
-    workspace.supervised_train()
+    # workspace.supervised_train()
+    supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.06.25_supervised_train/deterministic/165554_hidden_dim_256/supervised_model.pth"
+    workspace.supervised_eval(supervised_model_path)
 
 
 if __name__ == "__main__":
