@@ -6,7 +6,8 @@ import torchvision.transforms as transforms
 
 
 class SupervisedDataset(Dataset):
-    def __init__(self, episodes, encoder, language_projector, mode='train', device='cuda'):
+    def __init__(self, cfg, episodes, encoder, language_projector, mode='train', device='cuda'):
+        self.cfg = cfg
         self._episodes = episodes
         self.encoder = encoder
         self.language_projector = language_projector
@@ -19,13 +20,13 @@ class SupervisedDataset(Dataset):
             self._num_episodes += len(self._episodes[i])
         self._train_episodes = len(self._episodes[0]) + len(self._episodes[1])
         self._val_episodes = len(self._episodes[2]) + len(self._episodes[3])
+        print(f"Train episodes: {self._train_episodes}, Val episodes: {self._val_episodes}")
         self._get_max_episode_length()
+        self.indices = self._create_indices()
+        random.shuffle(self.indices)
 
     def __len__(self):
-        if self.mode == 'train':
-            return self._train_episodes
-        elif self.mode == 'val':
-            return self._val_episodes
+        return len(self.indices)
 
     def _get_max_episode_length(self):
         self._max_episode_len = 0
@@ -36,41 +37,47 @@ class SupervisedDataset(Dataset):
                     (
                         len(episode["observation"])
                         if not isinstance(episode["observation"], dict)
-                        else len(episode["observation"]['pixels'])
+                        else len(episode["observation"][self.cfg.obs_type])
                     ),
                 )
 
-    def __getitem__(self, idx):
+    def _create_indices(self):
         if self.mode == 'train':
             idx1, idx2 = 0, 1
         elif self.mode == 'val':
             idx1, idx2 = 2, 3
-        
-        # if idx < len(self._episodes[idx1]):
-        #     episode = self._episodes[idx1][idx]
-        #     label = 1
+        # Create a list of tuples (list_index, episode_index)
+        indices = [(idx1, i) for i in range(len(self._episodes[idx1]))] + \
+                  [(idx2, i) for i in range(len(self._episodes[idx2]))]
+        return indices
 
+    def __getitem__(self, idx):
+        # if self.mode == 'train':
+        #     idx1, idx2 = 0, 1
+        # elif self.mode == 'val':
+        #     idx1, idx2 = 2, 3
+
+        # # Randomly choose between idx1 and idx2
+        # if random.random() < 0.5:
+        #     if idx < len(self._episodes[idx1]):
+        #         episode = self._episodes[idx1][idx]
+        #         label = 1
+        #     else:
+        #         # If idx is out of bounds for idx1, default to idx2
+        #         episode = self._episodes[idx2][idx - len(self._episodes[idx1])]
+        #         label = 0
         # else:
-        #     episode = self._episodes[idx2][idx - len(self._episodes[idx1])]
-        #     label = 0
+        #     if idx < len(self._episodes[idx2]):
+        #         episode = self._episodes[idx2][idx]
+        #         label = 0
+        #     else:
+        #         # If idx is out of bounds for idx2, default to idx1
+        #         episode = self._episodes[idx1][idx - len(self._episodes[idx2])]
+        #         label = 1
 
-        # Randomly choose between idx1 and idx2
-        if random.random() < 0.5:
-            if idx < len(self._episodes[idx1]):
-                episode = self._episodes[idx1][idx]
-                label = 1
-            else:
-                # If idx is out of bounds for idx1, default to idx2
-                episode = self._episodes[idx2][idx - len(self._episodes[idx1])]
-                label = 0
-        else:
-            if idx < len(self._episodes[idx2]):
-                episode = self._episodes[idx2][idx]
-                label = 0
-            else:
-                # If idx is out of bounds for idx2, default to idx1
-                episode = self._episodes[idx1][idx - len(self._episodes[idx2])]
-                label = 1
+        list_idx, episode_idx = self.indices[idx]
+        episode = self._episodes[list_idx][episode_idx]
+        label = 1 if list_idx in [0, 2] else 0
         
         traj = episode["observation"]['pixels']
         traj = torch.tensor(traj).to(self.device).float()

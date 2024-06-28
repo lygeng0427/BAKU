@@ -195,7 +195,7 @@ class supervisedTraj(nn.Module):
                 block_size=256,
                 input_dim=embedding_dim,
                 output_dim=embedding_dim,
-                n_layer=8,
+                n_layer=2,
                 n_head=4,
                 n_embd=embedding_dim,
                 dropout=0.1,
@@ -349,8 +349,8 @@ class WorkspaceIL:
         traj_idx1, traj_idx2 = 10, 4
         metric = 'cosine' # cosine, euclidean, sinkhorn_cosine, sinkhorn_euclidean
 
-        traj1 = self.expert_replay_loader.dataset._episodes[task_idx1][traj_idx1]['observation']['pixels']
-        traj2 = self.expert_replay_loader.dataset._episodes[task_idx2][traj_idx2]['observation']['pixels']
+        traj1 = self.expert_replay_loader.dataset._episodes[task_idx1][traj_idx1]['observation'][self.cfg.obs_type]
+        traj2 = self.expert_replay_loader.dataset._episodes[task_idx2][traj_idx2]['observation'][self.cfg.obs_type]
         task_emb1 = self.expert_replay_loader.dataset._episodes[task_idx1][traj_idx1]['task_emb']
         task_emb2 = self.expert_replay_loader.dataset._episodes[task_idx2][traj_idx2]['task_emb']
 
@@ -374,8 +374,8 @@ class WorkspaceIL:
                 task_idx1, task_idx2 = 0, 1
                 traj_idx1, traj_idx2 = i, random.randint(0, len(episodes[1]) - 1)
             metric = 'cosine' # cosine, euclidean, sinkhorn_cosine, sinkhorn_euclidean
-            traj1 = episodes[task_idx1][traj_idx1]['observation']['pixels']
-            traj2 = episodes[task_idx2][traj_idx2]['observation']['pixels']
+            traj1 = episodes[task_idx1][traj_idx1]['observation'][self.cfg.obs_type]
+            traj2 = episodes[task_idx2][traj_idx2]['observation'][self.cfg.obs_type]
             task_emb1 = episodes[task_idx1][traj_idx1]['task_emb']
             task_emb2 = episodes[task_idx2][traj_idx2]['task_emb']
 
@@ -394,8 +394,8 @@ class WorkspaceIL:
                 task_idx1, task_idx2 = 1, 0
                 traj_idx1, traj_idx2 = i, random.randint(0, len(episodes[0]) - 1)
             metric = 'cosine' # cosine, euclidean, sinkhorn_cosine, sinkhorn_euclidean
-            traj1 = episodes[task_idx1][traj_idx1]['observation']['pixels']
-            traj2 = episodes[task_idx2][traj_idx2]['observation']['pixels']
+            traj1 = episodes[task_idx1][traj_idx1]['observation'][self.cfg.obs_type]
+            traj2 = episodes[task_idx2][traj_idx2]['observation'][self.cfg.obs_type]
             task_emb1 = episodes[task_idx1][traj_idx1]['task_emb']
             task_emb2 = episodes[task_idx2][traj_idx2]['task_emb']
 
@@ -517,11 +517,11 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project="contrCoformer", entity="lg3490", name='supervised_train_save')
+        wandb.init(project="baku_libero_traj1", entity="lg3490", name='nheads_4_layers_2_newdataset')
         config = wandb.config
         config.lr = 0.01
         config.epochs = 30
-        config.bs = 2
+        config.bs = 8
         config.step_size = 6
 
         # Rest of the code goes here
@@ -529,10 +529,10 @@ class WorkspaceIL:
         language_projector = self.agent.language_projector
 
         contr_train_dataset = SupervisedDataset(
-            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'train', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'train', self.device
         )
         contr_val_dataset = SupervisedDataset(
-            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
         )
         train_loader = torch.utils.data.DataLoader(
             contr_train_dataset,
@@ -592,7 +592,7 @@ class WorkspaceIL:
         language_projector = self.agent.language_projector
 
         contr_val_dataset = SupervisedDataset(
-            self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
         )
         val_loader = torch.utils.data.DataLoader(
             contr_val_dataset,
@@ -709,7 +709,7 @@ class WorkspaceIL:
         self.agent.load_snapshot(agent_payload, eval=True)
 
 
-@hydra.main(config_path="cfgs", config_name="config_eval")
+@hydra.main(config_path="cfgs", config_name="config_traj")
 def main(cfg):
     from compare_traj import WorkspaceIL as W
 
@@ -731,7 +731,7 @@ def main(cfg):
     # workspace.contr()
     # workspace.infoNCE()
     # workspace.supervised_train()
-    supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.06.25_supervised_train/deterministic/165554_hidden_dim_256/supervised_model.pth"
+    supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.06.28_supervised_train/deterministic/142515_hidden_dim_256/supervised_model.pth"
     workspace.supervised_eval(supervised_model_path)
 
 

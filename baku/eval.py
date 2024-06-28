@@ -251,8 +251,9 @@ class WorkspaceIL:
                 episode += 1
                 success.append(time_step.observation["goal_achieved"])
                 
-                observations.append(observation)
-                actionss.append(np.array(actions, dtype=np.float32))
+                if time_step.observation["goal_achieved"]:
+                    observations.append(observation)
+                    actionss.append(np.array(actions, dtype=np.float32))
 
             self.video_recorder.save(f"{self.global_frame}_env{env_idx}.mp4")
             episode_rewards.append(total_reward / episode)

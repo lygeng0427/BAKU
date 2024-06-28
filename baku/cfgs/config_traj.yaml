@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - agent: baku
-  - suite: libero
+  - suite: libero_single_task_success_failure
   - dataloader: libero
   - override hydra/launcher: submitit_local
 
@@ -20,7 +20,7 @@ batch_size: 64
 
 # experiment
 obs_type: "pixels" # pixels, features
-num_demos_per_task: 50
+num_demos_per_task: 1000
 encoder_type: 'resnet' # base, resnet
 policy_type: 'gpt' # mlp, gpt
 policy_head: deterministic # deterministic, gmm, bet, diffusion, vqbet

@@ -1,7 +1,7 @@
 # @package suite
 defaults:
   - _self_
-  - task: libero_90
+  - task: libero_single_task_success_failure
 
 suite: libero
 name: "libero"
@@ -34,7 +34,7 @@ save_snapshot: true
 
 task_make_fn:
   _target_: suite.libero.make
-  suite: ${suite.task.suite}
+  suite: libero_90
   scenes: ${suite.task.scenes}
   tasks: ${suite.task.tasks}
   frame_stack: ${suite.frame_stack}
