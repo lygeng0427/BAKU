@@ -184,6 +184,51 @@ class infoNCETraj(nn.Module):
         
         return loss
 
+# class supervisedTraj(nn.Module):
+#     def __init__(
+#         self,
+#         embedding_dim=512,
+#     ):
+#         super().__init__()
+#         self.encoder = GPT(
+#             GPTConfig(
+#                 block_size=256,
+#                 input_dim=embedding_dim,
+#                 output_dim=embedding_dim,
+#                 n_layer=2,
+#                 n_head=4,
+#                 n_embd=embedding_dim,
+#                 dropout=0.1,
+#             )
+#         )
+#         self.projection = nn.Linear(embedding_dim, 1)
+#         self.criterion = nn.BCEWithLogitsLoss()
+
+#     def forward(self, batch):
+#         traj = batch[0]
+#         labels = batch[1]
+#         B, L, embed_dim = traj.shape
+
+#         features = self.encoder(traj)
+#         logits = self.projection(features).squeeze(-1)
+#         labels = labels.to(logits.device).float().unsqueeze(-1)
+#         labels = labels.repeat(1, L)
+#         loss = 0
+#         for i in range(L):
+#             label = labels[:, i]
+#             logit = logits[:, i]
+#             loss += self.criterion(logit, label)
+#         return loss / L
+
+#     def show_prob(self, batch):
+#         traj = batch[0]
+#         labels = batch[1]
+
+#         features = self.encoder(traj)
+#         logits = self.projection(features).squeeze(-1)
+#         probs = torch.sigmoid(logits)
+#         return probs, labels
+
 class supervisedTraj(nn.Module):
     def __init__(
         self,
@@ -213,13 +258,9 @@ class supervisedTraj(nn.Module):
         logits = self.projection(features).squeeze(-1)
         labels = labels.to(logits.device).float().unsqueeze(-1)
         labels = labels.repeat(1, L)
-        loss = 0
-        for i in range(L):
-            label = labels[:, i]
-            logit = logits[:, i]
-            loss += self.criterion(logit, label)
-        return loss / L
-
+        loss = self.criterion(logits, labels) / L
+        return loss
+    
     def show_prob(self, batch):
         traj = batch[0]
         labels = batch[1]
@@ -228,7 +269,6 @@ class supervisedTraj(nn.Module):
         logits = self.projection(features).squeeze(-1)
         probs = torch.sigmoid(logits)
         return probs, labels
-
 
 class WorkspaceIL:
     def __init__(self, cfg):
@@ -517,11 +557,11 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project="baku_libero_traj1", entity="lg3490", name='nheads_4_layers_2_newdataset')
+        wandb.init(project="new_baku_libero_traj0707", entity="lg3490", name='nheads_4_layers_2_newloss_bs_16_lr_0.01')
         config = wandb.config
         config.lr = 0.01
         config.epochs = 30
-        config.bs = 8
+        config.bs = 16
         config.step_size = 6
 
         # Rest of the code goes here
@@ -730,9 +770,11 @@ def main(cfg):
     # workspace.compare_all()
     # workspace.contr()
     # workspace.infoNCE()
-    # workspace.supervised_train()
-    supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.06.28_supervised_train/deterministic/142515_hidden_dim_256/supervised_model.pth"
-    workspace.supervised_eval(supervised_model_path)
+    if cfg.supervised_train:
+        workspace.supervised_train()
+    else:
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.08_supervised_train/deterministic/112332_hidden_dim_256/supervised_model.pth"
+        workspace.supervised_eval(supervised_model_path)
 
 
 if __name__ == "__main__":

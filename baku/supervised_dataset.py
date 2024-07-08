@@ -1,8 +1,12 @@
 import numpy as np
 import random
 import torch
+import torchvision
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
+import os
+from PIL import Image
+import imageio
 
 
 class SupervisedDataset(Dataset):
@@ -24,6 +28,12 @@ class SupervisedDataset(Dataset):
         self._get_max_episode_length()
         self.indices = self._create_indices()
         random.shuffle(self.indices)
+        self.aug = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.ToTensor(),
+            ]
+        )
 
     def __len__(self):
         return len(self.indices)
@@ -80,8 +90,38 @@ class SupervisedDataset(Dataset):
         label = 1 if list_idx in [0, 2] else 0
         
         traj = episode["observation"]['pixels']
-        traj = torch.tensor(traj).to(self.device).float()
-        traj = traj.permute(0, 3, 1, 2)
+        # traj = torch.tensor(traj).to(self.device).float()
+        # traj = traj.permute(0, 3, 1, 2)
+        # traj = traj / 255.0
+
+        traj = torch.stack(
+            [self.aug(traj[i]) for i in range(len(traj))]
+        ).to(self.device).float()
+
+        # # save first frame of traj
+        # first_frame = traj[0]
+        # save_path = '/home/lgeng/BAKU/baku/imagess/success/' if label == 1 else '/home/lgeng/BAKU/baku/imagess/failure/'
+        # # create the dir if not exits
+        # os.makedirs(save_path, exist_ok=True)
+        # # save the image
+        # torchvision.utils.save_image(first_frame, os.path.join(save_path, f'{idx}.png'))
+
+        # # save videos
+        # if list_idx == 0:
+        #     save_path = '/home/lgeng/BAKU/baku/imagesss/train_success/'
+        # elif list_idx == 1:
+        #     save_path = '/home/lgeng/BAKU/baku/imagesss/train_failure/'
+        # elif list_idx == 2:
+        #     save_path = '/home/lgeng/BAKU/baku/imagesss/val_success/'
+        # else:
+        #     save_path = '/home/lgeng/BAKU/baku/imagesss/val_failure/'
+        
+        # os.makedirs(save_path, exist_ok=True)
+        # video = traj.cpu().detach().numpy() * 255
+        # video = video.astype(np.uint8)
+        # if video.shape[-1] != 3:
+        #     video = video.transpose(0, 2, 3, 1)
+        # imageio.mimsave(os.path.join(save_path, f'{idx}.mp4'), video, fps=30)
 
         task_emb = episode["task_emb"]
         task_emb = torch.tensor(task_emb).to(self.device).float()
