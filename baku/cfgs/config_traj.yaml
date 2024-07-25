@@ -27,7 +27,7 @@ policy_head: deterministic # deterministic, gmm, bet, diffusion, vqbet
 use_proprio: true
 use_language: true
 use_actions: false
-eval: true
+eval: false
 prompt: text # text, goal, intermediate_goal
 experiment: eval
 experiment_label: ${policy_head}
@@ -43,10 +43,13 @@ num_queries: 10
 expert_dataset: ${dataloader.bc_dataset}
 
 # Load weights
-bc_weight: path/to/weight
+bc_weight: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt
 # failure: /home/lgeng/BAKU/baku/exp_local/2024.06.20_train/deterministic/120102_hidden_dim_256/snapshot/100.pt
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.15_train/deterministic/115726_hidden_dim_256/snapshot/600000.pt (does not work very good)
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt
+
+# Padding
+padding: zero_padding_after # first_frame, last_frame, zero_padding_before, zero_padding_after
 
 hydra:
   run:

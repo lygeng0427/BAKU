@@ -31,6 +31,7 @@ eval: true
 prompt: text # text, goal, intermediate_goal
 experiment: eval
 experiment_label: ${policy_head}
+spoil_traj: true
 save_data: true
 save_data_path: ${root_dir}/expert_demos/libero/libero_failure
 

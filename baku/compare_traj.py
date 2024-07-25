@@ -26,7 +26,10 @@ from rewarder import optimal_transport_plan, cosine_distance, euclidean_distance
 from contr_dataset import ContrDataset, InfoNCEDataset
 from supervised_dataset import SupervisedDataset
 from agent.networks.gpt import GPT, GPTConfig
+
 from info_nce import InfoNCE, info_nce
+
+from moviepy.editor import VideoClip, TextClip, CompositeVideoClip
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 torch.backends.cudnn.benchmark = True
@@ -269,6 +272,43 @@ class supervisedTraj(nn.Module):
         logits = self.projection(features).squeeze(-1)
         probs = torch.sigmoid(logits)
         return probs, labels
+
+def make_frame(t, frames, fps):
+    """
+    Converts a tensor at time t to an RGB image.
+    """
+    frame_index = int(t * fps)  # fps is the frames per second of your video
+    if frame_index < len(frames):
+        frame = frames[frame_index]
+        return frame
+    else:
+        # Return a black frame if the index is out of bounds
+        return np.zeros((128, 128, 3), dtype=np.uint8)
+
+def make_text_clip(t, prob, fps):
+    frame_index = int(t * fps)
+    breakpoint()
+    # Create a text clip with the current second
+    txt = TextClip(f"{prob[frame_index]}", fontsize=70, color='white', bg_color='black')
+    # Set the duration of the text clip to 1 second
+    txt = txt.set_duration(1)
+    # Position the text in the center of the screen
+    return txt.set_pos(('center', 'center'))
+
+def save_video_with_prob(prob: list, frames, save_path: str, file_name: str, fps=30):
+    new_make_frame = lambda t: make_frame(t=t, frames=frames, fps=fps)
+    video_duration = len(frames) / fps
+    # Create a VideoClip object from the make_frame function
+    video = VideoClip(new_make_frame, duration=video_duration)
+
+    # Create a TextClip object from the make_text_clip function
+    txt_clips = [make_text_clip(t, prob=prob, fps=fps).set_start(t) for t in range(int(video_duration))]
+
+    # Overlay the text clips on top of the video
+    result = CompositeVideoClip([video] + txt_clips)
+
+    # Write the result to a video file
+    result.write_videofile(os.path.join(save_path, file_name), fps=fps)
 
 class WorkspaceIL:
     def __init__(self, cfg):
@@ -557,7 +597,7 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project="new_baku_libero_traj0707", entity="lg3490", name='nheads_4_layers_2_newloss_bs_16_lr_0.01')
+        wandb.init(project="new_baku_libero_traj0716", entity="lg3490", name=f'nheads_4_layers_2_bs_16_lr_0.01_pad{self.cfg.padding}')
         config = wandb.config
         config.lr = 0.01
         config.epochs = 30
@@ -569,10 +609,10 @@ class WorkspaceIL:
         language_projector = self.agent.language_projector
 
         contr_train_dataset = SupervisedDataset(
-            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'train', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, self.cfg.padding, 'train', self.device
         )
         contr_val_dataset = SupervisedDataset(
-            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, self.cfg.padding, 'val', self.device
         )
         train_loader = torch.utils.data.DataLoader(
             contr_train_dataset,
@@ -631,8 +671,16 @@ class WorkspaceIL:
         encoder = self.agent.encoder
         language_projector = self.agent.language_projector
 
+        contr_train_dataset = SupervisedDataset(
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, self.cfg.padding, 'train', self.device
+        )
         contr_val_dataset = SupervisedDataset(
-            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, 'val', self.device
+            self.cfg, self.expert_replay_loader.dataset._episodes, encoder, language_projector, self.cfg.padding, 'val', self.device
+        )
+        train_loader = torch.utils.data.DataLoader(
+            contr_train_dataset,
+            batch_size=2,
+            num_workers=0
         )
         val_loader = torch.utils.data.DataLoader(
             contr_val_dataset,
@@ -644,15 +692,39 @@ class WorkspaceIL:
         self.supervisedTraj.eval()
         # val_tqdm = tqdm(val_loader, total=len(val_loader), desc="Validation")
         df = pd.DataFrame(columns=["Probs", "Labels"])
+        train_result_df = pd.DataFrame(columns=["Probs", "Labels"])
         
         with torch.no_grad():
+            for batch in train_loader:
+                probs, labels = self.supervisedTraj.show_prob(batch)
+                for i in range(len(probs)):
+                    # print(f"Prob: {probs_formatted}")
+                    # print(f"GT: {labels[i].item()}")
+                    traj_length = batch[2][i]
+                    prob = probs[i].tolist()
+                    if self.cfg.padding == "first_frame" or self.cfg.padding == "zero_padding_before":
+                        prob = prob[-traj_length:]
+                    elif self.cfg.padding == "last_frame" or self.cfg.padding == "zero_padding_after":
+                        prob = prob[:traj_length]
+
+                    train_result_df = train_result_df.append({"Probs": prob, "Labels": labels[i].item()}, ignore_index=True)
+            train_result_df.to_csv(self.work_dir / 'train_probs.csv', index=False)
+
             for batch in val_loader:
                 probs, labels = self.supervisedTraj.show_prob(batch)
                 for i in range(len(probs)):
                     # print(f"Prob: {probs_formatted}")
                     # print(f"GT: {labels[i].item()}")
-                    df = df.append({"Probs": probs[i].tolist(), "Labels": labels[i].item()}, ignore_index=True)
-        df.to_csv(self.work_dir / 'probs.csv', index=False)
+                    traj_length = batch[2][i]
+                    prob = probs[i].tolist()
+                    if self.cfg.padding == "first_frame" or self.cfg.padding == "zero_padding_before":
+                        prob = prob[-traj_length:]
+                    elif self.cfg.padding == "last_frame" or self.cfg.padding == "zero_padding_after":
+                        prob = prob[:traj_length]
+                    
+                    df = df.append({"Probs": prob, "Labels": labels[i].item()}, ignore_index=True)
+
+            df.to_csv(self.work_dir / 'probs.csv', index=False)
 
     def eval(self):
         self.agent.train(False)
@@ -773,7 +845,7 @@ def main(cfg):
     if cfg.supervised_train:
         workspace.supervised_train()
     else:
-        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.08_supervised_train/deterministic/112332_hidden_dim_256/supervised_model.pth"
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth"
         workspace.supervised_eval(supervised_model_path)
 
 

@@ -173,5 +173,7 @@ expert_demos/
 */exp_local/
 */imagess/
 */imagesss/
+*/videos_with_probs/
+*/tb/
 
 *.pt

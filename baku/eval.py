@@ -287,6 +287,135 @@ class WorkspaceIL:
 
         self.agent.train(True)
 
+    def eval_and_spoil_traj(self, save_data_path):
+        self.agent.train(False)
+        episode_rewards = []
+        successes = []
+
+        for env_idx in range(self.envs_till_idx):
+            print(f"evaluating env {env_idx}")
+            episode, total_reward = 0, 0
+            eval_until_episode = utils.Until(self.cfg.suite.num_eval_episodes)
+            success = []
+
+            with open(self.work_dir / "task_names_env.txt", "r") as file:
+                line_dict = {int(line.split(":")[0]): line.split(":")[1].strip() for line in file}
+                full_task_name = line_dict[env_idx]
+            save_data_path = Path(save_data_path) / f"{full_task_name}.pkl"
+            save_data_path.parent.mkdir(parents=True, exist_ok=True)
+
+            observations = []
+            actionss = []
+
+            while eval_until_episode(episode):
+                time_step = self.env[env_idx].reset()
+
+                self.agent.buffer_reset()
+                step = 0
+
+                # prompt
+                if self.cfg.prompt != None and self.cfg.prompt != "intermediate_goal":
+                    prompt = self.expert_replay_loader.dataset.sample_test(env_idx)
+                else:
+                    prompt = None
+
+                if episode == 0:
+                    self.video_recorder.init(self.env[env_idx], enabled=True)
+
+                observation = {}
+                pixels, pixels_ego = [], []
+                joint_states, gripper_states = [], []
+                actions = []
+
+                # plot obs with cv2
+                while not time_step.last():
+                    if self.cfg.prompt == "intermediate_goal":
+                        prompt = self.expert_replay_loader.dataset.sample_test(
+                            env_idx, step
+                        )
+                    with torch.no_grad(), utils.eval_mode(self.agent):
+                        action = self.agent.act(
+                            time_step.observation,
+                            prompt,
+                            self.expert_replay_loader.dataset.stats,
+                            step,
+                            self.global_step,
+                            eval_mode=True,
+                        )
+                    # Add noise to action
+                    if 10 < step <= 20:
+                        mu = 0
+                        sigma = 1.5
+                    else:
+                        mu = 0
+                        sigma = 0.1
+                    noise = np.random.normal(mu, sigma, size=action.shape)
+                    action += noise
+
+                    time_step = self.env[env_idx].step(action)
+                    
+                    # Add pixels to observation
+                    img = np.transpose(time_step['observation']['pixels'], (1, 2, 0))
+                    img_ego = np.transpose(time_step['observation']['pixels_egocentric'], (1, 2, 0))
+                    joint_state = time_step['observation']['proprioceptive'][:7]
+                    gripper_state = time_step['observation']['proprioceptive'][7:]
+
+                    pixels.append(img)
+                    pixels_ego.append(img_ego)
+                    joint_states.append(joint_state)
+                    gripper_states.append(gripper_state)
+                    actions.append(action)
+
+                    self.video_recorder.record(self.env[env_idx])
+                    total_reward += time_step.reward
+                    step += 1
+
+                    if self.cfg.suite.name == "calvin" and time_step.reward == 1:
+                        self.agent.buffer_reset()
+
+                observation["pixels"] = np.array(pixels, dtype=np.uint8)
+                observation["pixels_egocentric"] = np.array(pixels_ego, dtype=np.uint8)
+                observation["joint_states"] = np.array(joint_states, dtype=np.float32)
+                observation["gripper_states"] = np.array(gripper_states, dtype=np.float32)
+
+                episode += 1
+                success.append(time_step.observation["goal_achieved"])
+                
+                observations.append(observation)
+                actionss.append(np.array(actions, dtype=np.float32))
+
+            self.video_recorder.save(f"{self.global_frame}_env{env_idx}.mp4")
+            episode_rewards.append(total_reward / episode)
+            successes.append(np.mean(success))
+
+            with open(save_data_path, "wb") as f:
+                pkl.dump(
+                    {
+                        "observations": observations,
+                        # "states": states,
+                        "actions": actionss,
+                        "rewards": episode_rewards,
+                        "task_emb": self.lang_model.encode(self.env[env_idx].language_instruction),
+                    },
+                    f,
+                )
+
+        for _ in range(len(self.env) - self.envs_till_idx):
+            episode_rewards.append(0)
+            successes.append(0)
+
+        with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
+            for env_idx, reward in enumerate(episode_rewards):
+                log(f"episode_reward_env{env_idx}", reward)
+                log(f"success_env{env_idx}", successes[env_idx])
+            log("episode_reward", np.mean(episode_rewards[: self.envs_till_idx]))
+            log("success", np.mean(successes))
+            log("episode_length", step * self.cfg.suite.action_repeat / episode)
+            log("episode", self.global_episode)
+            log("step", self.global_step)
+
+        self.agent.train(True)
+
     def save_snapshot(self):
         snapshot = self.work_dir / "snapshot.pt"
         self.agent.clear_buffers()
@@ -330,10 +459,13 @@ def main(cfg):
     snapshots["bc"] = bc_snapshot
     workspace.load_snapshot(snapshots)
 
-    if cfg.save_data:
-        workspace.eval_and_save(cfg.save_data_path)
+    if cfg.spoil_traj:
+        workspace.eval_and_spoil_traj(cfg.save_data_path)
     else:
-        workspace.eval()
+        if cfg.save_data:
+            workspace.eval_and_save(cfg.save_data_path)
+        else:
+            workspace.eval()
 
 
 if __name__ == "__main__":

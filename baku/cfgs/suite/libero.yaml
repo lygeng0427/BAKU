@@ -21,7 +21,7 @@ history_len: 10
 
 # eval
 eval_every_steps: 200000
-num_eval_episodes: 500
+num_eval_episodes: 20
 eval_history_len: 5
 
 # obs_keys

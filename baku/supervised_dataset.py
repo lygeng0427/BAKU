@@ -10,11 +10,12 @@ import imageio
 
 
 class SupervisedDataset(Dataset):
-    def __init__(self, cfg, episodes, encoder, language_projector, mode='train', device='cuda'):
+    def __init__(self, cfg, episodes, encoder, language_projector, padding, mode='train', device='cuda'):
         self.cfg = cfg
         self._episodes = episodes
         self.encoder = encoder
         self.language_projector = language_projector
+        self.padding = padding
         self.mode = mode
         self.device = device
         self.envs_till_idx = len(self._episodes)
@@ -34,6 +35,11 @@ class SupervisedDataset(Dataset):
                 transforms.ToTensor(),
             ]
         )
+        # Turn off gradients for encoder and language projector
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+        for param in self.language_projector.parameters():
+            param.requires_grad = False
 
     def __len__(self):
         return len(self.indices)
@@ -90,6 +96,7 @@ class SupervisedDataset(Dataset):
         label = 1 if list_idx in [0, 2] else 0
         
         traj = episode["observation"]['pixels']
+        traj_numpy = traj
         # traj = torch.tensor(traj).to(self.device).float()
         # traj = traj.permute(0, 3, 1, 2)
         # traj = traj / 255.0
@@ -97,6 +104,8 @@ class SupervisedDataset(Dataset):
         traj = torch.stack(
             [self.aug(traj[i]) for i in range(len(traj))]
         ).to(self.device).float()
+        first_frame = traj[0].unsqueeze(0)
+        last_frame = traj[-1].unsqueeze(0)
 
         # # save first frame of traj
         # first_frame = traj[0]
@@ -125,12 +134,31 @@ class SupervisedDataset(Dataset):
 
         task_emb = episode["task_emb"]
         task_emb = torch.tensor(task_emb).to(self.device).float()
+        
+        with torch.no_grad():
+            lang_features = self.language_projector(task_emb[None]).repeat(traj.shape[0], 1)
+            traj = self.encoder(traj, lang=lang_features)
+            first_frame = self.encoder(first_frame, lang=lang_features[0]).squeeze(0)
+            last_frame = self.encoder(last_frame, lang=lang_features[-1]).squeeze(0)
 
-        lang_features = self.language_projector(task_emb[None]).repeat(traj.shape[0], 1)
+        if self.padding == "first_frame":
+            # padding first frame before the trajectory
+            first_frames_pad = first_frame.repeat(self._max_episode_len - traj.shape[0], 1)
+            traj = torch.cat([first_frames_pad, traj])
 
-        traj = self.encoder(traj, lang=lang_features)
+        elif self.padding == "last_frame":
+            # # padding last frame after the trajectory
+            last_frames_pad = last_frame.repeat(self._max_episode_len - traj.shape[0], 1)
+            traj = torch.cat([traj, last_frames_pad])
+        
+        elif self.padding == "zero_padding_before":
+            # zero padding before the trajectory
+            pad = torch.zeros(self._max_episode_len - traj.shape[0], traj.shape[1]).to(self.device)
+            traj = torch.cat([pad, traj])
+        
+        elif self.padding == "zero_padding_after":
+            # zero padding after the trajectory
+            pad = torch.zeros(self._max_episode_len - traj.shape[0], traj.shape[1]).to(self.device)
+            traj = torch.cat([traj, pad])
 
-        pad = torch.zeros(self._max_episode_len - traj.shape[0], traj.shape[1]).to(self.device)
-        traj = torch.cat([pad, traj])
-
-        return traj, label
+        return traj, label, traj_numpy.shape[0]
