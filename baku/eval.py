@@ -254,6 +254,7 @@ class WorkspaceIL:
                 if time_step.observation["goal_achieved"]:
                     observations.append(observation)
                     actionss.append(np.array(actions, dtype=np.float32))
+                print(f"End evaluating traj for episode {episode}")
 
             self.video_recorder.save(f"{self.global_frame}_env{env_idx}.mp4")
             episode_rewards.append(total_reward / episode)
@@ -343,9 +344,9 @@ class WorkspaceIL:
                             eval_mode=True,
                         )
                     # Add noise to action
-                    if 10 < step <= 20:
+                    if 10 < step <= 50:
                         mu = 0
-                        sigma = 1.5
+                        sigma = 2.0
                     else:
                         mu = 0
                         sigma = 0.1
@@ -380,9 +381,10 @@ class WorkspaceIL:
 
                 episode += 1
                 success.append(time_step.observation["goal_achieved"])
-                
-                observations.append(observation)
-                actionss.append(np.array(actions, dtype=np.float32))
+                if not time_step.observation["goal_achieved"]:
+                    observations.append(observation)
+                    actionss.append(np.array(actions, dtype=np.float32))
+                print(f"End spoiling traj for episode {episode}")
 
             self.video_recorder.save(f"{self.global_frame}_env{env_idx}.mp4")
             episode_rewards.append(total_reward / episode)

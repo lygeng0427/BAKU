@@ -17,6 +17,7 @@ import random
 import pandas as pd
 from tqdm import tqdm
 import wandb
+from datetime import date
 
 import utils
 from logger import Logger
@@ -597,11 +598,11 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project="new_baku_libero_traj0716", entity="lg3490", name=f'nheads_4_layers_2_bs_16_lr_0.01_pad{self.cfg.padding}')
+        wandb.init(project=f"baku_libero_traj{date.today()}", entity="lg3490", name=f'nheads_4_layers_2_bs_32_lr_0.01_pad{self.cfg.padding}')
         config = wandb.config
         config.lr = 0.01
         config.epochs = 30
-        config.bs = 16
+        config.bs = 32
         config.step_size = 6
 
         # Rest of the code goes here
@@ -845,7 +846,8 @@ def main(cfg):
     if cfg.supervised_train:
         workspace.supervised_train()
     else:
-        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth"
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.28_supervised_train/deterministic/225134_hidden_dim_256/supervised_model.pth"
+        # works well: /home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth
         workspace.supervised_eval(supervised_model_path)
 
 

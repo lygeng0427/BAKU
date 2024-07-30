@@ -49,7 +49,7 @@ bc_weight: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt
 
 # Padding
-padding: zero_padding_after # first_frame, last_frame, zero_padding_before, zero_padding_after
+padding: last_frame # first_frame, last_frame, zero_padding_before, zero_padding_after
 
 hydra:
   run:
