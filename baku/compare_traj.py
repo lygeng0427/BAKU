@@ -188,6 +188,21 @@ class infoNCETraj(nn.Module):
         
         return loss
 
+def create_tensor(N, L):
+    # Ensure N and L are integers and N <= L
+    N = int(N)
+    L = int(L)
+    if N > L:
+        raise ValueError("N should not be greater than L")
+
+    # Create a tensor of zeros with length L
+    tensor = torch.zeros(L)
+    
+    # Fill the first N elements with ones
+    tensor[:N] = 1
+    
+    return tensor
+
 # class supervisedTraj(nn.Module):
 #     def __init__(
 #         self,
@@ -206,24 +221,25 @@ class infoNCETraj(nn.Module):
 #             )
 #         )
 #         self.projection = nn.Linear(embedding_dim, 1)
-#         self.criterion = nn.BCEWithLogitsLoss()
+#         self.criterion = nn.BCEWithLogitsLoss(reduction='none')
 
 #     def forward(self, batch):
 #         traj = batch[0]
 #         labels = batch[1]
-#         B, L, embed_dim = traj.shape
+#         length = batch[2]
+#         BS, L, _ = traj.shape
+#         masks = torch.stack([create_tensor(length[i].item(), L) for i in range(len(length))], dim=0).to(traj.device)
 
 #         features = self.encoder(traj)
 #         logits = self.projection(features).squeeze(-1)
 #         labels = labels.to(logits.device).float().unsqueeze(-1)
 #         labels = labels.repeat(1, L)
-#         loss = 0
-#         for i in range(L):
-#             label = labels[:, i]
-#             logit = logits[:, i]
-#             loss += self.criterion(logit, label)
-#         return loss / L
 
+#         element_wise_loss = self.criterion(logits, labels)
+#         masked_loss = element_wise_loss * masks
+#         loss = masked_loss.sum() / masks.sum()
+#         return loss
+    
 #     def show_prob(self, batch):
 #         traj = batch[0]
 #         labels = batch[1]
@@ -273,43 +289,6 @@ class supervisedTraj(nn.Module):
         logits = self.projection(features).squeeze(-1)
         probs = torch.sigmoid(logits)
         return probs, labels
-
-def make_frame(t, frames, fps):
-    """
-    Converts a tensor at time t to an RGB image.
-    """
-    frame_index = int(t * fps)  # fps is the frames per second of your video
-    if frame_index < len(frames):
-        frame = frames[frame_index]
-        return frame
-    else:
-        # Return a black frame if the index is out of bounds
-        return np.zeros((128, 128, 3), dtype=np.uint8)
-
-def make_text_clip(t, prob, fps):
-    frame_index = int(t * fps)
-    breakpoint()
-    # Create a text clip with the current second
-    txt = TextClip(f"{prob[frame_index]}", fontsize=70, color='white', bg_color='black')
-    # Set the duration of the text clip to 1 second
-    txt = txt.set_duration(1)
-    # Position the text in the center of the screen
-    return txt.set_pos(('center', 'center'))
-
-def save_video_with_prob(prob: list, frames, save_path: str, file_name: str, fps=30):
-    new_make_frame = lambda t: make_frame(t=t, frames=frames, fps=fps)
-    video_duration = len(frames) / fps
-    # Create a VideoClip object from the make_frame function
-    video = VideoClip(new_make_frame, duration=video_duration)
-
-    # Create a TextClip object from the make_text_clip function
-    txt_clips = [make_text_clip(t, prob=prob, fps=fps).set_start(t) for t in range(int(video_duration))]
-
-    # Overlay the text clips on top of the video
-    result = CompositeVideoClip([video] + txt_clips)
-
-    # Write the result to a video file
-    result.write_videofile(os.path.join(save_path, file_name), fps=fps)
 
 class WorkspaceIL:
     def __init__(self, cfg):
@@ -598,11 +577,11 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project=f"baku_libero_traj{date.today()}", entity="lg3490", name=f'nheads_4_layers_2_bs_32_lr_0.01_pad{self.cfg.padding}')
+        wandb.init(project=f"baku_libero_traj{date.today()}", entity="lg3490", name=f'nheads_4_layers_2_bs_16_lr_0.01_pad{self.cfg.padding}_oldLoss')
         config = wandb.config
         config.lr = 0.01
-        config.epochs = 30
-        config.bs = 32
+        config.epochs = 100
+        config.bs = 16
         config.step_size = 6
 
         # Rest of the code goes here
@@ -846,7 +825,7 @@ def main(cfg):
     if cfg.supervised_train:
         workspace.supervised_train()
     else:
-        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.07.28_supervised_train/deterministic/225134_hidden_dim_256/supervised_model.pth"
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.08.01_supervised_train/deterministic/162113_hidden_dim_256/supervised_model.pth"
         # works well: /home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth
         workspace.supervised_eval(supervised_model_path)
 

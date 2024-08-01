@@ -167,7 +167,7 @@ class WorkspaceIL:
 
         self.agent.train(True)
     
-    def eval_and_save(self, save_data_path):
+    def eval_and_save(self, save_data_path, save_failure=False, file_postfix=""):
         self.agent.train(False)
         episode_rewards = []
         successes = []
@@ -181,7 +181,7 @@ class WorkspaceIL:
             with open(self.work_dir / "task_names_env.txt", "r") as file:
                 line_dict = {int(line.split(":")[0]): line.split(":")[1].strip() for line in file}
                 full_task_name = line_dict[env_idx]
-            save_data_path = Path(save_data_path) / f"{full_task_name}.pkl"
+            save_data_path = Path(save_data_path) / f"{full_task_name}{file_postfix}.pkl"
             save_data_path.parent.mkdir(parents=True, exist_ok=True)
 
             observations = []
@@ -250,10 +250,14 @@ class WorkspaceIL:
 
                 episode += 1
                 success.append(time_step.observation["goal_achieved"])
-                
-                if time_step.observation["goal_achieved"]:
-                    observations.append(observation)
-                    actionss.append(np.array(actions, dtype=np.float32))
+                if not save_failure:
+                    if time_step.observation["goal_achieved"]:
+                        observations.append(observation)
+                        actionss.append(np.array(actions, dtype=np.float32))
+                else:
+                    if not time_step.observation["goal_achieved"]:
+                        observations.append(observation)
+                        actionss.append(np.array(actions, dtype=np.float32))
                 print(f"End evaluating traj for episode {episode}")
 
             self.video_recorder.save(f"{self.global_frame}_env{env_idx}.mp4")
@@ -465,7 +469,7 @@ def main(cfg):
         workspace.eval_and_spoil_traj(cfg.save_data_path)
     else:
         if cfg.save_data:
-            workspace.eval_and_save(cfg.save_data_path)
+            workspace.eval_and_save(cfg.save_data_path, cfg.save_failure, cfg.file_postfix)
         else:
             workspace.eval()
 
