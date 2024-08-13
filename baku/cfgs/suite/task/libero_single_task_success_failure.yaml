@@ -7,12 +7,12 @@ scenes:
 
 tasks:
   - kitchen1:
-      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet"
-      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_big"
-      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_failure"
-      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_failure_big"
+      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet"
+      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_big"
+      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_failure"
+      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_failure_big"
       # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_failure_mixed"
-      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval"
-      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_big"
-      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_failure"
-      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_failure_big"
+      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval"
+      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_big"
+      - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_failure"
+      # - "KITCHEN_SCENE1_open_the_bottom_drawer_of_the_cabinet_eval_failure_big"

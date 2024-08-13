@@ -203,52 +203,6 @@ def create_tensor(N, L):
     
     return tensor
 
-# class supervisedTraj(nn.Module):
-#     def __init__(
-#         self,
-#         embedding_dim=512,
-#     ):
-#         super().__init__()
-#         self.encoder = GPT(
-#             GPTConfig(
-#                 block_size=256,
-#                 input_dim=embedding_dim,
-#                 output_dim=embedding_dim,
-#                 n_layer=2,
-#                 n_head=4,
-#                 n_embd=embedding_dim,
-#                 dropout=0.1,
-#             )
-#         )
-#         self.projection = nn.Linear(embedding_dim, 1)
-#         self.criterion = nn.BCEWithLogitsLoss(reduction='none')
-
-#     def forward(self, batch):
-#         traj = batch[0]
-#         labels = batch[1]
-#         length = batch[2]
-#         BS, L, _ = traj.shape
-#         masks = torch.stack([create_tensor(length[i].item(), L) for i in range(len(length))], dim=0).to(traj.device)
-
-#         features = self.encoder(traj)
-#         logits = self.projection(features).squeeze(-1)
-#         labels = labels.to(logits.device).float().unsqueeze(-1)
-#         labels = labels.repeat(1, L)
-
-#         element_wise_loss = self.criterion(logits, labels)
-#         masked_loss = element_wise_loss * masks
-#         loss = masked_loss.sum() / masks.sum()
-#         return loss
-    
-#     def show_prob(self, batch):
-#         traj = batch[0]
-#         labels = batch[1]
-
-#         features = self.encoder(traj)
-#         logits = self.projection(features).squeeze(-1)
-#         probs = torch.sigmoid(logits)
-#         return probs, labels
-
 class supervisedTraj(nn.Module):
     def __init__(
         self,
@@ -267,18 +221,23 @@ class supervisedTraj(nn.Module):
             )
         )
         self.projection = nn.Linear(embedding_dim, 1)
-        self.criterion = nn.BCEWithLogitsLoss()
+        self.criterion = nn.BCEWithLogitsLoss(reduction='none')
 
     def forward(self, batch):
         traj = batch[0]
         labels = batch[1]
-        B, L, embed_dim = traj.shape
+        length = batch[2]
+        BS, L, _ = traj.shape
+        masks = torch.stack([create_tensor(length[i].item(), L) for i in range(len(length))], dim=0).to(traj.device)
 
         features = self.encoder(traj)
         logits = self.projection(features).squeeze(-1)
         labels = labels.to(logits.device).float().unsqueeze(-1)
         labels = labels.repeat(1, L)
-        loss = self.criterion(logits, labels) / L
+
+        element_wise_loss = self.criterion(logits, labels)
+        masked_loss = element_wise_loss * masks
+        loss = masked_loss.sum() / masks.sum()
         return loss
     
     def show_prob(self, batch):
@@ -289,6 +248,47 @@ class supervisedTraj(nn.Module):
         logits = self.projection(features).squeeze(-1)
         probs = torch.sigmoid(logits)
         return probs, labels
+
+# class supervisedTraj(nn.Module):
+#     def __init__(
+#         self,
+#         embedding_dim=512,
+#     ):
+#         super().__init__()
+#         self.encoder = GPT(
+#             GPTConfig(
+#                 block_size=256,
+#                 input_dim=embedding_dim,
+#                 output_dim=embedding_dim,
+#                 n_layer=2,
+#                 n_head=4,
+#                 n_embd=embedding_dim,
+#                 dropout=0.1,
+#             )
+#         )
+#         self.projection = nn.Linear(embedding_dim, 1)
+#         self.criterion = nn.BCEWithLogitsLoss()
+
+#     def forward(self, batch):
+#         traj = batch[0]
+#         labels = batch[1]
+#         B, L, embed_dim = traj.shape
+
+#         features = self.encoder(traj)
+#         logits = self.projection(features).squeeze(-1)
+#         labels = labels.to(logits.device).float().unsqueeze(-1)
+#         labels = labels.repeat(1, L)
+#         loss = self.criterion(logits, labels) / L
+#         return loss
+    
+#     def show_prob(self, batch):
+#         traj = batch[0]
+#         labels = batch[1]
+
+#         features = self.encoder(traj)
+#         logits = self.projection(features).squeeze(-1)
+#         probs = torch.sigmoid(logits)
+#         return probs, labels
 
 class WorkspaceIL:
     def __init__(self, cfg):
@@ -577,7 +577,7 @@ class WorkspaceIL:
                 df.to_csv(self.work_dir / 'features_distances.csv', index=False)
 
     def supervised_train(self):
-        wandb.init(project=f"baku_libero_traj{date.today()}", entity="lg3490", name=f'nheads_4_layers_2_bs_16_lr_0.01_pad{self.cfg.padding}_oldLoss')
+        wandb.init(project=f"baku_libero_traj{date.today()}", entity="lg3490", name=f'nheads_4_layers_2_bs_16_lr_0.01_{self.cfg.padding}_newLoss_oldData')
         config = wandb.config
         config.lr = 0.01
         config.epochs = 100
@@ -641,9 +641,10 @@ class WorkspaceIL:
 
                 wandb.log({"val_loss": val_loss_meter.avg}, step=i)
 
-            if val_loss_meter.avg < min_val_loss:
-                min_val_loss = val_loss_meter.avg
-                torch.save(self.supervisedTraj.state_dict(), self.work_dir / 'supervised_model.pth')
+            # if val_loss_meter.avg < min_val_loss:
+            #     min_val_loss = val_loss_meter.avg
+            #     torch.save(self.supervisedTraj.state_dict(), self.work_dir / 'supervised_model.pth')
+            torch.save(self.supervisedTraj.state_dict(), self.work_dir / f'supervised_model_{i+1}.pth')
 
         wandb.finish()
     
@@ -659,12 +660,12 @@ class WorkspaceIL:
         )
         train_loader = torch.utils.data.DataLoader(
             contr_train_dataset,
-            batch_size=2,
+            batch_size=8,
             num_workers=0
         )
         val_loader = torch.utils.data.DataLoader(
             contr_val_dataset,
-            batch_size=2,
+            batch_size=8,
             num_workers=0,
         )
 
@@ -825,7 +826,7 @@ def main(cfg):
     if cfg.supervised_train:
         workspace.supervised_train()
     else:
-        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.08.01_supervised_train/deterministic/162113_hidden_dim_256/supervised_model.pth"
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.08.07_supervised_train/deterministic/121752_hidden_dim_256/supervised_model_3.pth"
         # works well: /home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth
         workspace.supervised_eval(supervised_model_path)
 
