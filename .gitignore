@@ -175,5 +175,8 @@ expert_demos/
 */imagesss/
 */videos_with_probs*/
 */tb/
+*/libero/
 
 *.pt
+*.zip
+baku/api_keys.py

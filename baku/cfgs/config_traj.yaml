@@ -43,7 +43,7 @@ num_queries: 10
 expert_dataset: ${dataloader.bc_dataset}
 
 # Load weights
-bc_weight: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt
+bc_weight: /home/lgeng/BAKU/baku/exp_local/2024.09.29_train/deterministic/034923_hidden_dim_256/snapshot/80000.pt
 # failure: /home/lgeng/BAKU/baku/exp_local/2024.06.20_train/deterministic/120102_hidden_dim_256/snapshot/100.pt
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.15_train/deterministic/115726_hidden_dim_256/snapshot/600000.pt (does not work very good)
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt

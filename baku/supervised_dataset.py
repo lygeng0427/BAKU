@@ -23,6 +23,7 @@ class SupervisedDataset(Dataset):
         self._num_episodes = 0
         for i in range(self.envs_till_idx):
             self._num_episodes += len(self._episodes[i])
+        # idx 0 is train success, idx 1 is train failure, idx 2 is val success, idx 3 is val failure
         self._train_episodes = len(self._episodes[0]) + len(self._episodes[1])
         self._val_episodes = len(self._episodes[2]) + len(self._episodes[3])
         print(f"Train episodes: {self._train_episodes}, Val episodes: {self._val_episodes}")
@@ -41,8 +42,29 @@ class SupervisedDataset(Dataset):
         for param in self.language_projector.parameters():
             param.requires_grad = False
 
+        self.check_training_set_balance()
+
     def __len__(self):
         return len(self.indices)
+
+    def check_training_set_balance(self):
+        average_prob = np.array([0.0] * self._max_episode_len)
+
+        train_success_episodes = self._episodes[0]
+        train_failure_episodes = self._episodes[1]
+        total_number_of_episodes = len(train_success_episodes) + len(train_failure_episodes)
+
+        for episode in train_success_episodes:
+            episode_length = len(episode["observation"]['pixels'])
+            episode_prob = np.array([1.0] * episode_length + [0.0] * (self._max_episode_len - episode_length))
+            average_prob += episode_prob
+        for episode in train_failure_episodes:
+            episode_length = len(episode["observation"]['pixels'])
+            episode_prob = np.array([0.0] * episode_length + [0.0] * (self._max_episode_len - episode_length))
+            average_prob += episode_prob
+        average_prob /= total_number_of_episodes
+        
+        return average_prob
 
     def _get_max_episode_length(self):
         self._max_episode_len = 0

@@ -35,7 +35,7 @@ spoil_traj: true
 save_data: true
 save_failure: true
 save_data_path: ${root_dir}/expert_demos/libero/libero_success
-file_postfix: _big
+file_postfix: _failure_9500_epoch
 
 # action chunking
 temporal_agg: true # aggregate actions over time
@@ -46,6 +46,8 @@ expert_dataset: ${dataloader.bc_dataset}
 
 # Load weights
 bc_weight: path/to/weight
+# failure for all tasks: /home/lgeng/BAKU/baku/exp_local/2024.10.22_train/deterministic/015557_hidden_dim_256/snapshot/500.pt
+# success for all tasks: /home/lgeng/BAKU/baku/exp_local/2024.09.29_train/deterministic/034923_hidden_dim_256/snapshot/80000.pt
 # failure: /home/lgeng/BAKU/baku/exp_local/2024.06.20_train/deterministic/120102_hidden_dim_256/snapshot/100.pt
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.15_train/deterministic/115726_hidden_dim_256/snapshot/600000.pt (does not work very good)
 # success: /home/lgeng/BAKU/baku/exp_local/2024.06.26_train/deterministic/225305_hidden_dim_256/snapshot/80000.pt

@@ -66,7 +66,6 @@ class WorkspaceIL:
             )
 
         self.env, self.task_descriptions = hydra.utils.call(self.cfg.suite.task_make_fn)
-        breakpoint()
 
         # create agent
         self.agent = make_agent(

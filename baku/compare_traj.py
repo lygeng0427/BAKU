@@ -18,6 +18,7 @@ import pandas as pd
 from tqdm import tqdm
 import wandb
 from datetime import date
+import matplotlib.pyplot as plt
 
 import utils
 from logger import Logger
@@ -188,7 +189,7 @@ class infoNCETraj(nn.Module):
         
         return loss
 
-def create_tensor(N, L):
+def create_tensor_mask(N, L, padding='zero_padding_after'):
     # Ensure N and L are integers and N <= L
     N = int(N)
     L = int(L)
@@ -198,8 +199,12 @@ def create_tensor(N, L):
     # Create a tensor of zeros with length L
     tensor = torch.zeros(L)
     
-    # Fill the first N elements with ones
-    tensor[:N] = 1
+    if padding == 'zero_padding_before' or padding == 'first_frame':
+        # Fill the last N elements with ones
+        tensor[-N:] = 1
+    elif padding == 'zero_padding_after' or padding == 'last_frame':
+        # Fill the first N elements with ones
+        tensor[:N] = 1
     
     return tensor
 
@@ -207,6 +212,7 @@ class supervisedTraj(nn.Module):
     def __init__(
         self,
         embedding_dim=512,
+        padding='zero_padding_after',
     ):
         super().__init__()
         self.encoder = GPT(
@@ -222,13 +228,14 @@ class supervisedTraj(nn.Module):
         )
         self.projection = nn.Linear(embedding_dim, 1)
         self.criterion = nn.BCEWithLogitsLoss(reduction='none')
+        self.padding = padding
 
     def forward(self, batch):
         traj = batch[0]
         labels = batch[1]
         length = batch[2]
         BS, L, _ = traj.shape
-        masks = torch.stack([create_tensor(length[i].item(), L) for i in range(len(length))], dim=0).to(traj.device)
+        masks = torch.stack([create_tensor_mask(length[i].item(), L, self.padding) for i in range(len(length))], dim=0).to(traj.device)
 
         features = self.encoder(traj)
         logits = self.projection(features).squeeze(-1)
@@ -338,7 +345,7 @@ class WorkspaceIL:
         )
         self.CLIPTraj = CLIPTraj().to(self.device)
         self.infoNCETraj = infoNCETraj().to(self.device)
-        self.supervisedTraj = supervisedTraj().to(self.device)
+        self.supervisedTraj = supervisedTraj(padding=self.cfg.padding).to(self.device)
 
     @property
     def global_step(self):
@@ -707,6 +714,21 @@ class WorkspaceIL:
 
             df.to_csv(self.work_dir / 'probs.csv', index=False)
 
+    def check_balance(self):
+        contr_train_dataset = SupervisedDataset(
+            self.cfg, self.expert_replay_loader.dataset._episodes, self.agent.encoder, self.agent.language_projector, self.cfg.padding, 'train', self.device
+        )
+        average_prob = contr_train_dataset.check_training_set_balance()
+        # Plot the average prob as a sequence
+        plt.plot(average_prob)
+        plt.xlabel('Episode')
+        plt.ylabel('Average Probability')
+        # set y axis scale as 0-1
+        plt.ylim(0, 1)
+        plt.title('Average Probability as a Sequence')
+        # save plot
+        plt.savefig(self.work_dir / 'average_prob.png')
+
     def eval(self):
         self.agent.train(False)
         episode_rewards = []
@@ -823,10 +845,11 @@ def main(cfg):
     # workspace.compare_all()
     # workspace.contr()
     # workspace.infoNCE()
+    # workspace.check_balance()
     if cfg.supervised_train:
         workspace.supervised_train()
     else:
-        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.08.07_supervised_train/deterministic/121752_hidden_dim_256/supervised_model_3.pth"
+        supervised_model_path = "/home/lgeng/BAKU/baku/exp_local/eval/2024.10.22_supervised_train/deterministic/082008_hidden_dim_256/supervised_model_40.pth"
         # works well: /home/lgeng/BAKU/baku/exp_local/eval/2024.07.16_supervised_train/deterministic/135045_hidden_dim_256/supervised_model.pth
         workspace.supervised_eval(supervised_model_path)
 
